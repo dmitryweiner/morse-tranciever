@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#14100b" />
+  <title>Morse Transceiver</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171208'/%3E%3Ccircle cx='9' cy='16' r='4' fill='%23d9a441'/%3E%3Crect x='16' y='13' width='11' height='6' rx='3' fill='%23d9a441'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1><span>MORSE</span><span class="titleDot">●</span><span>CODE</span></h1>
+      <div id="modeSwitch" role="tablist" aria-label="Mode">
+        <button id="txModeBtn" class="mode active" role="tab" aria-selected="true">⚡ Transmit</button>
+        <button id="rxModeBtn" class="mode" role="tab" aria-selected="false">🎙 Receive</button>
+      </div>
+    </header>
+    <main>
+      <div id="treeWrap"><svg id="tree" role="img" aria-label="Morse code tree"></svg></div>
+
+      <div id="readout">
+        <div id="charBox">
+          <span id="bigChar">·</span>
+          <span id="codeNow"></span>
+        </div>
+        <div id="textWrap">
+          <div id="textLine"><span id="outText"></span><span id="caret"></span></div>
+          <button id="clearBtn" title="Clear text" aria-label="Clear text">✕</button>
+        </div>
+      </div>
+
+      <section id="txPanel">
+        <div id="keyModeSwitch" role="tablist" aria-label="Key type">
+          <button id="straightModeBtn" class="seg active" role="tab" aria-selected="true">Straight</button>
+          <button id="paddleModeBtn" class="seg" role="tab" aria-selected="false">Paddle</button>
+        </div>
+        <button id="keyBtn" aria-label="Morse key"><span>KEY</span></button>
+        <div id="paddleRow" hidden>
+          <button id="dashBtn" class="paddleBtn" aria-label="Dash paddle">−</button>
+          <button id="dotBtn" class="paddleBtn" aria-label="Dot paddle">·</button>
+        </div>
+        <p class="hint" id="txHint">Hold the key (or Space): short press — dot, long — dash.
+          Pause to finish a letter, pause longer for a word gap.</p>
+      </section>
+
+      <section id="rxPanel" hidden>
+        <button id="micBtn">▶ Start listening</button>
+        <div id="meterWrap"><div id="meterBar"></div></div>
+        <div id="rxInfo">&nbsp;</div>
+        <p class="hint">Decodes Morse tones from the microphone; speed is picked up
+          automatically.</p>
+      </section>
+
+      <div id="settings">
+        <label>Speed
+          <input id="wpmSlider" type="range" min="5" max="30" step="1" value="15" />
+          <span id="wpmVal" class="val">15 WPM</span>
+        </label>
+        <label>Tone
+          <input id="toneSlider" type="range" min="400" max="3400" step="50" value="600" />
+          <span id="toneVal" class="val">600 Hz</span>
+        </label>
+      </div>
+      <div id="status" role="status"></div>
+    </main>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
