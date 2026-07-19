@@ -8,7 +8,7 @@ import { SignalGate, type SpectralFrame } from '../morse/envelope';
 import { AdaptiveDecoder } from '../morse/decoder';
 import { unitMs } from '../morse/timing';
 import type { MorseEvent } from '../morse/code';
-import { BAND_LOW_HZ, BAND_HIGH_HZ, FFT_SIZE } from '../audio/mic';
+import { FFT_SIZE, RX_HOP_MS, SpectrumAnalyser, goertzelPowerDb, windowSizeFor } from './spectrum';
 
 export interface WavData {
   sampleRate: number;
@@ -60,23 +60,9 @@ export function decodeWavPcm16(bytes: Uint8Array): WavData {
   return { sampleRate, samples };
 }
 
-// Мощность Гёрцеля на одной частоте (окно Блэкмана — как в AnalyserNode).
-export function goertzelPowerDb(
-  samples: Float32Array, start: number, len: number, sampleRate: number, hz: number,
-): number {
-  const w = (2 * Math.PI * hz) / sampleRate;
-  const c = 2 * Math.cos(w);
-  let s1 = 0;
-  let s2 = 0;
-  for (let i = 0; i < len; i++) {
-    const win = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / len) + 0.08 * Math.cos((4 * Math.PI * i) / len);
-    const s0 = samples[start + i] * win + c * s1 - s2;
-    s2 = s1;
-    s1 = s0;
-  }
-  const power = (s1 * s1 + s2 * s2 - c * s1 * s2) / (len * len);
-  return 10 * Math.log10(power + 1e-20);
-}
+// Спектральная математика (Гёрцель, гребёнка, SpectralFrame) переехала в
+// ./spectrum — тем же кодом теперь считает и браузерный приём.
+export { goertzelPowerDb } from './spectrum';
 
 // Доминирующая частота по самым громким кадрам файла.
 export function dominantFrequencyHz(
@@ -103,30 +89,15 @@ export function dominantFrequencyHz(
 }
 
 // Кадры «как в браузере»: раз в hopMs — пик спектра в CW-полосе, его
-// контраст над медианой полосы и частота (см. MicAnalyser.poll).
-export function spectralFrames(wav: WavData, hopMs = 15): SpectralFrame[] {
+// контраст над медианой полосы и частота (SpectrumAnalyser — общий код).
+export function spectralFrames(wav: WavData, hopMs = RX_HOP_MS): SpectralFrame[] {
   const { samples, sampleRate } = wav;
   const hop = Math.max(1, Math.round((hopMs / 1000) * sampleRate));
-  const frame = Math.min(FFT_SIZE, samples.length);
-  const binHz = sampleRate / FFT_SIZE;
-  const freqs: number[] = [];
-  for (let f = Math.max(binHz, BAND_LOW_HZ); f <= BAND_HIGH_HZ; f += binHz) freqs.push(f);
+  const frame = Math.min(windowSizeFor(sampleRate), samples.length);
+  const analyser = new SpectrumAnalyser(sampleRate, frame);
   const out: SpectralFrame[] = [];
   for (let k = 0; (k * hop) + frame <= samples.length; k++) {
-    const band: number[] = [];
-    let max = -Infinity;
-    let peakHz = freqs[0];
-    for (const f of freqs) {
-      const p = Math.max(goertzelPowerDb(samples, k * hop, frame, sampleRate, f), -120);
-      band.push(p);
-      if (p > max) { max = p; peakHz = f; }
-    }
-    band.sort((a, b) => a - b);
-    out.push({
-      levelDb: max,
-      contrastDb: max - band[Math.floor(band.length / 2)],
-      peakHz,
-    });
+    out.push(analyser.frameAt(samples, k * hop));
   }
   return out;
 }
@@ -140,30 +111,80 @@ export interface RxChainResult {
   estWpm: number;
 }
 
-// Прогон кадров через РЕАЛЬНЫЕ гейт и декодер — тот же код, что в main.ts.
-export function runRxChain(wav: WavData, seedWpm = 15, hopMs = 15): RxChainResult {
-  const frames = spectralFrames(wav, hopMs);
-  const gate = new SignalGate();
-  const decoder = new AdaptiveDecoder(unitMs(seedWpm));
-  const events: MorseEvent[] = [];
-  const edges: number[] = [];
-  let prevOn = false;
-  let edgeAt = 0;
-  for (let k = 0; k < frames.length; k++) {
-    const t = k * hopMs;
-    const on = gate.update(frames[k]);
-    if (on !== prevOn) {
-      edges.push(Math.round(t - edgeAt) * (prevOn ? 1 : -1));
-      prevOn = on;
-      edgeAt = t;
-    }
-    events.push(...decoder.signal(on, t));
-    events.push(...decoder.tick(t));
+// Пошаговый прогон записи через РЕАЛЬНЫЕ гейт и декодер. Единственная
+// реализация цепочки для файлов: runRxChain (стенд/тесты) гоняет её залпом,
+// браузерная кнопка Upload — порциями step() c паузами, чтобы не вешать UI.
+export class RxChainRunner {
+  readonly totalFrames: number;
+  readonly edges: number[] = [];
+  private readonly samples: Float32Array;
+  private readonly hopSamples: number;
+  private readonly analyser: SpectrumAnalyser;
+  private readonly gate: SignalGate;
+  private readonly decoder: AdaptiveDecoder;
+  private k = 0;
+  private prevOn = false;
+  private edgeAt = 0;
+  private finished = false;
+
+  constructor(wav: WavData, seedWpm = 15, private hopMs = RX_HOP_MS) {
+    this.samples = wav.samples;
+    this.hopSamples = Math.max(1, Math.round((hopMs / 1000) * wav.sampleRate));
+    const win = Math.min(windowSizeFor(wav.sampleRate), wav.samples.length);
+    this.analyser = new SpectrumAnalyser(wav.sampleRate, win);
+    this.gate = new SignalGate(hopMs);
+    this.decoder = new AdaptiveDecoder(unitMs(seedWpm));
+    this.totalFrames = Math.floor((wav.samples.length - win) / this.hopSamples) + 1;
   }
-  // Дать хвосту закоммититься.
-  const tEnd = frames.length * hopMs + 10 * decoder.unitMs;
-  events.push(...decoder.signal(false, tEnd));
-  events.push(...decoder.tick(tEnd));
+
+  get processedFrames(): number {
+    return this.k;
+  }
+
+  get done(): boolean {
+    return this.k >= this.totalFrames;
+  }
+
+  get unitMs(): number {
+    return this.decoder.unitMs;
+  }
+
+  get dashDotRatio(): number {
+    return this.decoder.dashDotRatio;
+  }
+
+  step(maxFrames: number): MorseEvent[] {
+    const events: MorseEvent[] = [];
+    const end = Math.min(this.k + maxFrames, this.totalFrames);
+    for (; this.k < end; this.k++) {
+      const t = this.k * this.hopMs;
+      const on = this.gate.update(this.analyser.frameAt(this.samples, this.k * this.hopSamples));
+      if (on !== this.prevOn) {
+        this.edges.push(Math.round(t - this.edgeAt) * (this.prevOn ? 1 : -1));
+        this.prevOn = on;
+        this.edgeAt = t;
+      }
+      events.push(...this.decoder.signal(on, t));
+      events.push(...this.decoder.tick(t));
+    }
+    return events;
+  }
+
+  // Дать хвосту закоммититься (последняя буква/слово).
+  finish(): MorseEvent[] {
+    if (this.finished) return [];
+    this.finished = true;
+    const tEnd = this.totalFrames * this.hopMs + 10 * this.decoder.unitMs;
+    return [...this.decoder.signal(false, tEnd), ...this.decoder.tick(tEnd)];
+  }
+}
+
+// Прогон целиком — тот же код, что в браузерном Upload, но залпом.
+export function runRxChain(wav: WavData, seedWpm = 15, hopMs = RX_HOP_MS): RxChainResult {
+  const runner = new RxChainRunner(wav, seedWpm, hopMs);
+  const events: MorseEvent[] = [];
+  while (!runner.done) events.push(...runner.step(1000));
+  events.push(...runner.finish());
 
   let text = '';
   for (const e of events) {
@@ -173,8 +194,8 @@ export function runRxChain(wav: WavData, seedWpm = 15, hopMs = 15): RxChainResul
   return {
     text: text.trim(),
     events,
-    edges,
-    unitMs: decoder.unitMs,
-    estWpm: Math.round(1200 / decoder.unitMs),
+    edges: runner.edges,
+    unitMs: runner.unitMs,
+    estWpm: Math.round(1200 / runner.unitMs),
   };
 }

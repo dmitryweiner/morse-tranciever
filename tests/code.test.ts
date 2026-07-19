@@ -1,14 +1,15 @@
-import { MORSE, decodeCode, isElement, MAX_CODE_LENGTH } from '../src/morse/code';
+import { MORSE, decodeCode, isElement, MAX_CODE_LENGTH, TREE_DEPTH } from '../src/morse/code';
 
 describe('morse table', () => {
-  it('covers exactly A–Z', () => {
-    const letters = Object.keys(MORSE).sort();
-    expect(letters).toHaveLength(26);
-    expect(letters[0]).toBe('A');
-    expect(letters[25]).toBe('Z');
+  it('covers A–Z, digits 0–9 and ITU punctuation', () => {
+    const keys = Object.keys(MORSE);
+    for (let c = 65; c <= 90; c++) expect(keys).toContain(String.fromCharCode(c));
+    for (let d = 0; d <= 9; d++) expect(keys).toContain(String(d));
+    for (const p of ['.', ',', '?', '/', '=', '+', '-', '@']) expect(keys).toContain(p);
+    expect(keys).toHaveLength(26 + 10 + 8);
   });
 
-  it('codes are unique, non-empty, made of dots/dashes, depth ≤ 4', () => {
+  it('codes are unique, non-empty, made of dots/dashes, depth ≤ max', () => {
     const codes = Object.values(MORSE);
     expect(new Set(codes).size).toBe(codes.length);
     for (const code of codes) {
@@ -18,7 +19,15 @@ describe('morse table', () => {
     }
   });
 
-  it('decodeCode round-trips every letter and rejects junk', () => {
+  it('tree depth stays 4 (A–Z card); longer codes exist beyond it', () => {
+    expect(TREE_DEPTH).toBe(4);
+    expect(MAX_CODE_LENGTH).toBe(6);
+    for (let c = 65; c <= 90; c++) {
+      expect(MORSE[String.fromCharCode(c)].length).toBeLessThanOrEqual(TREE_DEPTH);
+    }
+  });
+
+  it('decodeCode round-trips every symbol and rejects junk', () => {
     for (const [ch, code] of Object.entries(MORSE)) {
       expect(decodeCode(code)).toBe(ch);
     }
@@ -27,8 +36,15 @@ describe('morse table', () => {
     expect(decodeCode('......')).toBeNull();
   });
 
-  it('spot checks: SOS', () => {
+  it('spot checks against ITU-R M.1677', () => {
     expect(MORSE.S).toBe('...');
     expect(MORSE.O).toBe('---');
+    expect(MORSE['1']).toBe('.----');
+    expect(MORSE['5']).toBe('.....');
+    expect(MORSE['0']).toBe('-----');
+    expect(MORSE['?']).toBe('..--..');
+    expect(MORSE['/']).toBe('-..-.');
+    expect(MORSE['+']).toBe('.-.-.');
+    expect(MORSE['@']).toBe('.--.-.');
   });
 });

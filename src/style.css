@@ -398,6 +398,64 @@ h1 {
 #dashBtn.down { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 217, 122, 0.45); }
 #dotBtn.down { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6), 0 0 30px rgba(169, 239, 214, 0.5); }
 
+/* ---------- отправка текста ---------- */
+#sendRow {
+  display: flex;
+  gap: 8px;
+  width: min(420px, 92%);
+}
+
+#sendInput {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--dim);
+  border-radius: 999px;
+  background: var(--bg0);
+  color: var(--text);
+  font: 500 15px system-ui, sans-serif;
+  padding: 8px 16px;
+}
+
+#sendInput:focus {
+  outline: none;
+  border-color: var(--gold-deep);
+}
+
+#sendBtn {
+  appearance: none;
+  border: 1px solid var(--gold-deep);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--gold);
+  font: 700 14px system-ui, sans-serif;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+
+#sendBtn.sending {
+  background: var(--gold);
+  color: var(--ink);
+  box-shadow: 0 0 20px rgba(217, 164, 65, 0.4);
+}
+
+/* Строка передаваемого текста: текущая буква подсвечена. */
+#sendLine {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  max-width: min(420px, 92%);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#sendLine .cur {
+  color: var(--gold-bright);
+  text-shadow: 0 0 12px rgba(255, 217, 122, 0.6);
+}
+
 /* ---------- панель приёма ---------- */
 #micBtn {
   appearance: none;
@@ -414,6 +472,47 @@ h1 {
   background: var(--gold);
   color: var(--ink);
   box-shadow: 0 0 24px rgba(217, 164, 65, 0.4);
+}
+
+#rxRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+#uploadBtn {
+  appearance: none;
+  border: 1px solid var(--dim);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 700 15px system-ui, sans-serif;
+  padding: 14px 22px;
+  cursor: pointer;
+}
+
+#uploadBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#recBtn {
+  appearance: none;
+  border: 1px solid var(--dim);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 700 14px system-ui, sans-serif;
+  padding: 8px 20px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+#recBtn.rec {
+  border-color: #a3402c;
+  background: #58221a;
+  color: #ffd9c9;
+  box-shadow: 0 0 20px rgba(217, 90, 60, 0.35);
 }
 
 #meterWrap {

@@ -3,7 +3,7 @@
 // While a symbol is keyed/received, the path from the root lights up and the
 // tip node glows; a committed letter flashes its node.
 
-import { decodeCode, MAX_CODE_LENGTH } from '../morse/code';
+import { decodeCode, TREE_DEPTH } from '../morse/code';
 
 const NS = 'http://www.w3.org/2000/svg';
 const W = 720;
@@ -81,7 +81,7 @@ export class TreeView {
     const root = this.nodeByCode.get('');
     root?.classList.toggle('on', code.length > 0);
     if (code.length > 0) this.lit.push('');
-    for (let i = 1; i <= Math.min(code.length, MAX_CODE_LENGTH); i++) {
+    for (let i = 1; i <= Math.min(code.length, TREE_DEPTH); i++) {
       const prefix = code.slice(0, i);
       const node = this.nodeByCode.get(prefix);
       if (!node) break;
@@ -124,7 +124,7 @@ export class TreeView {
     code: string, x: number, y: number, links: SVGGElement, nodes: SVGGElement,
   ): void {
     const depth = code.length;
-    if (depth >= MAX_CODE_LENGTH) return;
+    if (depth >= TREE_DEPTH) return;
     // Как на карточке: тире — влево, точка — вправо.
     const children: Array<['-' | '.', number]> = [
       ['-', x - DX[depth]],
@@ -134,7 +134,7 @@ export class TreeView {
       const childCode = code + element;
       // Листья (глубина 4) при stagger чередуют высоту по чётности позиции.
       let cy = y + DY;
-      if (childCode.length === MAX_CODE_LENGTH && this.layout.stagger) {
+      if (childCode.length === TREE_DEPTH && this.layout.stagger) {
         const slot = Math.round(((cx - W / 2) / DX[3] - 1) / 2);
         cy += (((slot % 2) + 2) % 2 === 0 ? -1 : 1) * this.layout.stagger;
       }

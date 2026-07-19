@@ -1,37 +1,73 @@
-// RX front end: microphone → AnalyserNode. Each poll returns a SpectralFrame:
-// the loudest FFT bin in the CW band (robust to senders on a different tone
-// frequency), its contrast over the band median (tonality — отличает синус от
-// шума/речи) and its frequency. Thresholding lives in the pure SignalGate.
+// RX front end: microphone → AudioWorklet (тонкий форвардер сырого PCM) →
+// гребёнка Гёрцеля на основном потоке ТЕМ ЖЕ кодом, что офлайн-стенд
+// (SpectrumAnalyser из src/analysis/spectrum.ts) — браузер и стенд считают
+// одинаково. Пуш-модель: колбэк получает SpectralFrame раз в RX_HOP_MS с
+// точным временем по СЭМПЛ-СЧЁТЧИКУ потока (джиттер main-потока не искажает
+// длительности меток — прежний AnalyserNode+poll(15 мс) квантовал фронты
+// втрое грубее). Пороговая логика — в чистом SignalGate.
 
 import type { SpectralFrame } from '../morse/envelope';
+import { FFT_SIZE, RX_HOP_MS, SpectrumAnalyser } from '../analysis/spectrum';
 
-// Экспортируются: офлайн-стенд (src/analysis/wavlab.ts) эмулирует этот же
-// анализ по тем же константам.
-export const BAND_LOW_HZ = 300;
-// Верх — с запасом под бытовые пищалки (типичные 2–3.2 кГц), а не только
-// «радийные» 400–1000 Гц: реальный тестовый зуммер пользователя — 3000 Гц.
-export const BAND_HIGH_HZ = 3400;
-// 1024 @ 48 кГц ≈ 21 мс окна: больше — фронты размазываются и на быстрой
-// морзянке паузы между элементами схлопываются; разрешения ~47 Гц хватает.
-export const FFT_SIZE = 1024;
+export type FrameCallback = (frame: SpectralFrame, tMs: number) => void;
+
+// Код воркета — инлайн-строкой через Blob URL: воркет тривиален (копит блоки
+// по 128 сэмплов, постит пачками), а отдельный TS-модуль воркета пришлось бы
+// по-особому собирать Vite'ом. Расчёт спектра сознательно НЕ здесь: бюджет
+// аудио-потока жёсткий, а main может позволить себе джиттер — метки времени
+// всё равно сэмпловые.
+const WORKLET_JS = `
+class PcmForwarder extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.buf = new Float32Array(512);
+    this.n = 0;
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    let i = 0;
+    while (i < ch.length) {
+      const take = Math.min(ch.length - i, this.buf.length - this.n);
+      this.buf.set(ch.subarray(i, i + take), this.n);
+      this.n += take;
+      i += take;
+      if (this.n === this.buf.length) {
+        this.port.postMessage(this.buf); // structured clone — buf переиспользуем
+        this.n = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-forwarder', PcmForwarder);
+`;
 
 export class MicAnalyser {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
-  private analyser: AnalyserNode | null = null;
-  private bins: Float32Array<ArrayBuffer> | null = null;
+  private node: AudioWorkletNode | null = null;
+  private analyser: SpectrumAnalyser | null = null;
+  private onFrame: FrameCallback | null = null;
+  // Скользящее окно PCM: buf[0] соответствует абсолютному сэмплу bufStart.
+  private buf = new Float32Array(0);
+  private bufStart = 0;
+  private received = 0; // всего сэмплов пришло из воркета
+  private pos = 0;      // абсолютный сэмпл начала следующего окна анализа
+  private hop = 1;
+  private win = FFT_SIZE; // окно анализа в сэмплах (~21 мс на sr контекста)
 
   get running(): boolean {
-    return this.analyser !== null;
+    return this.node !== null;
   }
 
-  async start(): Promise<void> {
-    if (this.analyser) return;
+  async start(onFrame: FrameCallback): Promise<void> {
+    if (this.node) return;
     // Контекст создаётся СИНХРОННО, до первого await: на Android Chrome
     // активация жеста истекает после диалога разрешений, и AudioContext,
-    // созданный после await, остаётся suspended — анализатор вечно отдаёт
-    // тишину («уровень сигнала нулевой»). start() должен вызываться
-    // синхронно из обработчика клика.
+    // созданный после await, остаётся suspended — приём вечно молчит
+    // («уровень сигнала нулевой»). start() должен вызываться синхронно из
+    // обработчика клика.
     const ctx = new AudioContext();
     void ctx.resume();
     this.ctx = ctx;
@@ -45,6 +81,14 @@ export class MicAnalyser {
           autoGainControl: false,
         },
       });
+      const blobUrl = URL.createObjectURL(
+        new Blob([WORKLET_JS], { type: 'application/javascript' }),
+      );
+      try {
+        await ctx.audioWorklet.addModule(blobUrl);
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
     } catch (e) {
       void ctx.close();
       this.ctx = null;
@@ -52,50 +96,62 @@ export class MicAnalyser {
     }
     await ctx.resume().catch(() => {});
     const src = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = FFT_SIZE;
-    analyser.smoothingTimeConstant = 0; // временное сглаживание размазало бы фронты
-    src.connect(analyser);
+    const node = new AudioWorkletNode(ctx, 'pcm-forwarder', {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+    });
+    src.connect(node);
+    this.analyser = new SpectrumAnalyser(ctx.sampleRate);
+    this.win = this.analyser.windowSize;
+    this.hop = Math.max(1, Math.round((RX_HOP_MS / 1000) * ctx.sampleRate));
+    // В использовании не бывает больше ~5×FFT_SIZE (компактация ниже) —
+    // фиксированной ёмкости хватает без роста.
+    this.buf = new Float32Array(FFT_SIZE * 8);
+    this.bufStart = 0;
+    this.received = 0;
+    this.pos = 0;
+    this.onFrame = onFrame;
+    node.port.onmessage = (e: MessageEvent) => {
+      if (e.data instanceof Float32Array) this.ingest(e.data);
+    };
     this.stream = stream;
-    this.analyser = analyser;
-    this.bins = new Float32Array(analyser.frequencyBinCount);
+    this.node = node;
   }
 
-  poll(): SpectralFrame {
-    if (!this.ctx || !this.analyser || !this.bins) {
-      return { levelDb: -120, contrastDb: 0, peakHz: 0 };
+  // Самолечение: если контекст остался/стал suspended (система отняла аудио),
+  // пробуем поднять. Дёргается из UI-цикла — сообщений-то в этом случае нет.
+  heal(): void {
+    if (this.ctx && this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
+  }
+
+  private ingest(chunk: Float32Array): void {
+    if (!this.analyser || !this.ctx) return;
+    this.buf.set(chunk, this.received - this.bufStart);
+    this.received += chunk.length;
+    while (this.pos + this.win <= this.received) {
+      const frame = this.analyser.frameAt(this.buf, this.pos - this.bufStart);
+      // Время кадра — конец окна анализа, по аудио-клоку потока.
+      const tMs = ((this.pos + this.win) / this.ctx.sampleRate) * 1000;
+      this.onFrame?.(frame, tMs);
+      this.pos += this.hop;
     }
-    // Самолечение: если контекст так и не вышел из suspended (или система
-    // приостановила его), пробуем поднять на каждом опросе.
-    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
-    this.analyser.getFloatFrequencyData(this.bins);
-    const hzPerBin = this.ctx.sampleRate / FFT_SIZE;
-    const lo = Math.max(1, Math.floor(BAND_LOW_HZ / hzPerBin));
-    const hi = Math.min(this.bins.length - 1, Math.ceil(BAND_HIGH_HZ / hzPerBin));
-    const band: number[] = [];
-    let max = -Infinity;
-    let peakBin = lo;
-    for (let i = lo; i <= hi; i++) {
-      // Цифровая тишина даёт -Infinity — ломает и медиану, и EMA гейта.
-      const v = Number.isFinite(this.bins[i]) ? Math.max(this.bins[i], -120) : -120;
-      band.push(v);
-      if (v > max) { max = v; peakBin = i; }
+    if (this.pos - this.bufStart > FFT_SIZE * 4) {
+      this.buf.copyWithin(0, this.pos - this.bufStart, this.received - this.bufStart);
+      this.bufStart = this.pos;
     }
-    band.sort((a, b) => a - b);
-    const median = band[Math.floor(band.length / 2)];
-    return {
-      levelDb: max,
-      contrastDb: max - median,
-      peakHz: peakBin * hzPerBin,
-    };
   }
 
   stop(): void {
+    if (this.node) {
+      this.node.port.onmessage = null;
+      this.node.disconnect();
+    }
     if (this.stream) for (const track of this.stream.getTracks()) track.stop();
     if (this.ctx) void this.ctx.close();
     this.ctx = null;
     this.stream = null;
+    this.node = null;
     this.analyser = null;
-    this.bins = null;
+    this.onFrame = null;
   }
 }

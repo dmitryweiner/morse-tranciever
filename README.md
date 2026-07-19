@@ -15,14 +15,24 @@ No backend, no runtime dependencies — pure Web Audio + SVG.
     inter-element gap is remembered — like a real electronic keyer.
 
   Pause to finish a letter, pause longer to insert a word gap.
+
+  You can also type a line of text and hit **Send** — the app keys it for
+  you with textbook PARIS timings at the selected speed, highlighting the
+  letter being sent. Pressing any key aborts the transmission.
+
+  **Record** captures your keying (straight, paddle or Send) and downloads
+  it as a WAV file with the sidetone rendered at the selected Tone pitch —
+  16-bit PCM, up to 2 minutes; the file plays anywhere and feeds straight
+  back into the Receive mode or the offline tools.
 - **Receive** — continuously analyses the microphone, detects a CW tone
   (300–3400 Hz band — covers radio sidetones and household 2–3 kHz beepers)
   and decodes it. The carrier frequency is detected and locked automatically
   (shown next to the WPM estimate; tones on other frequencies are ignored
   until a new carrier persists). A tonality filter (spectral contrast +
   peak-frequency stability) rejects background noise and speech; decoding
-  speed adapts to the incoming signal automatically and button-bounce
-  glitches are filtered.
+  speed adapts to the incoming signal automatically — including the sender's
+  dash/dot ratio (many real beepers squeeze dashes to ~2× a dot instead of
+  the textbook 3×) — and button-bounce glitches are filtered.
 
   Note: microphone access requires a secure context — serve the page over
   HTTPS (or open it as `localhost`, e.g. via `adb reverse` when testing on
@@ -44,7 +54,10 @@ text accumulates in a line below the current letter.
   sender within roughly ±2×).
 - **Tone** (400–3400 Hz) — sidetone pitch for transmission.
 
-Alphabet: letters A–Z (ITU codes), matching the training-card diagram.
+Alphabet: letters A–Z, digits 0–9 and common punctuation `. , ? / = + - @`
+(ITU codes). The tree diagram shows the letters (as on the training card);
+for longer codes the path lights up to the fourth level and the full code is
+visible in the code readout.
 
 ## Development
 

@@ -13,7 +13,8 @@
     "check": "tsc --noEmit && eslint . && vitest run",
     "shot": "node scripts/shot.mjs",
     "rx": "node scripts/rx.mjs",
-    "wav": "vite-node scripts/wavlab.ts --"
+    "wav": "vite-node scripts/wavlab.ts --",
+    "gen": "vite-node scripts/genwav.ts --"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,8 +1,8 @@
 import { encodeWAV } from '../src/audio/wav';
 import {
-  decodeWavPcm16, dominantFrequencyHz, runRxChain,
+  decodeWavPcm16, dominantFrequencyHz, runRxChain, RxChainRunner,
 } from '../src/analysis/wavlab';
-import { MORSE } from '../src/morse/code';
+import { MORSE, type MorseEvent } from '../src/morse/code';
 
 const SR = 48000;
 
@@ -62,6 +62,26 @@ describe('wavlab', () => {
     const res = runRxChain(wav, 5);
     expect(res.text).toBe('SOS');
     expect(Math.abs(res.unitMs - 240)).toBeLessThan(40);
+  });
+
+  it('RxChainRunner in small steps matches runRxChain exactly', () => {
+    // Браузерная загрузка файла гонит ту же цепочку порциями (чтобы не
+    // вешать UI) — результат обязан совпадать с одномоментным прогоном.
+    const wav = decodeWavPcm16(toneWav('SOS', 100, 700));
+    const oneShot = runRxChain(wav, 15);
+    const runner = new RxChainRunner(wav, 15);
+    const events: MorseEvent[] = [];
+    while (!runner.done) events.push(...runner.step(7));
+    events.push(...runner.finish());
+    let text = '';
+    for (const e of events) {
+      if (e.kind === 'letter') text += e.char ?? '?';
+      if (e.kind === 'word') text += ' ';
+    }
+    expect(text.trim()).toBe(oneShot.text);
+    expect(text.trim()).toBe('SOS');
+    expect(runner.edges).toEqual(oneShot.edges);
+    expect(runner.unitMs).toBe(oneShot.unitMs);
   });
 
   it('loud broadband noise bursts decode to nothing', () => {

@@ -2,14 +2,15 @@ import { AdaptiveDecoder } from '../src/morse/decoder';
 import { MORSE, type MorseEvent } from '../src/morse/code';
 
 // Plays text as tone on/off edges with textbook timings at the given unit.
-function playText(dec: AdaptiveDecoder, text: string, unit: number): MorseEvent[] {
+// dashMs позволяет сыграть «пищалку» с нестандартным тире (не 3 юнита).
+function playText(dec: AdaptiveDecoder, text: string, unit: number, dashMs = 3 * unit): MorseEvent[] {
   const events: MorseEvent[] = [];
   let t = 1000;
   for (const word of text.split(' ')) {
     for (const ch of word) {
       for (const el of MORSE[ch]) {
         events.push(...dec.signal(true, t));
-        t += (el === '.' ? 1 : 3) * unit;
+        t += el === '.' ? unit : dashMs;
         events.push(...dec.signal(false, t));
         t += unit;
       }
@@ -117,6 +118,51 @@ describe('AdaptiveDecoder', () => {
     events.push(...dec.signal(false, t));
     events.push(...dec.tick(t + 3000));
     expect(render(events)).toBe('SOS');
+  });
+
+  it('decodes a squeezed beeper (dash ≈1.9× dot, as samples/TEST.wav)', () => {
+    // Реальные пищалки жмут тире: у TEST.wav точка ≈250 мс, тире ≈475 мс.
+    const dec = new AdaptiveDecoder(240);
+    expect(render(playText(dec, 'PARIS PARIS', 250, 475))).toBe('PARIS PARIS');
+    expect(dec.dashDotRatio).toBeLessThan(2.2);
+  });
+
+  it('at 1.9:1, a dash streak then a dot streak does not spiral the estimate', () => {
+    // Без адаптации ratio серия тире (OOO) утаскивает юнит к dur/3 ≈ 158,
+    // после чего точки 250 мс читаются как тире (реальный режим отказа).
+    const dec = new AdaptiveDecoder(240);
+    expect(render(playText(dec, 'PARIS OOO EEE', 250, 475))).toBe('PARIS OOO EEE');
+    expect(Math.abs(dec.unitMs - 250)).toBeLessThan(60);
+  });
+
+  it('a hail of tiny shards before the message does not glue into elements', () => {
+    // Реальный случай (samples/TEST.wav на хопе 5 мс): «возня» перед посылкой
+    // даёт осколки 5–45 мс с разрывами <25 мс; анти-дребезг склеивал их в
+    // псевдо-метку точечного масштаба (~285 мс) и первая T читалась как A.
+    // Склейка разрешена только к метке, уже тянущей на элемент (≥0.45 юнита).
+    const segs = [
+      45, -5, 5, -20, 10, -5, 10, -20, 5, -20, 10, -5, 15, -20, 5, -10,
+      20, -15, 10, -5, 5, -10, 15, -55,
+      500, -1350, 255, -1350,           // T, E — как в реальной записи
+    ];
+    const dec = new AdaptiveDecoder(240);
+    const events: MorseEvent[] = [];
+    let t = 1000;
+    for (const seg of segs) {
+      events.push(...dec.signal(seg > 0, t));
+      t += Math.abs(seg);
+      events.push(...dec.tick(t));
+    }
+    events.push(...dec.tick(t + 3000));
+    expect(render(events)).toBe('T E'); // пауза 1350 мс — словесная на 5 WPM
+  });
+
+  it('setUnitMs resets the learned dash/dot ratio to the default 3', () => {
+    const dec = new AdaptiveDecoder(240);
+    playText(dec, 'PARIS PARIS', 250, 475);
+    expect(dec.dashDotRatio).toBeLessThan(2.2);
+    dec.setUnitMs(240);
+    expect(dec.dashDotRatio).toBe(3);
   });
 
   it('setUnitMs re-seeds and clears history', () => {

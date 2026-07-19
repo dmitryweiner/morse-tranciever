@@ -138,6 +138,31 @@ describe('SignalGate (tonality filter)', () => {
     expect(gate.carrierHz).toBeNull();
   });
 
+  it('at 5 ms hop the timings stay in milliseconds, not frames', () => {
+    // Замок несущей: 120 мс тона = 24 кадра по 5 мс (при 15 мс хватало 8).
+    const gate = new SignalGate(5);
+    feedFrames(gate, () => noise(), 300);
+    feedFrames(gate, () => tone(-30, 3000), 12);
+    expect(gate.carrierHz).toBeNull(); // 60 мс — ещё рано
+    feedFrames(gate, () => tone(-30, 3000), 16);
+    expect(gate.carrierHz).not.toBeNull(); // 140 мс — замок есть
+    // Помеха 200 мс (40 кадров) — меньше порога перезахвата 400 мс.
+    feedFrames(gate, () => noise(), 30);
+    expect(feedFrames(gate, () => tone(-30, 600), 40)).toBe(false);
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(100);
+  });
+
+  it('at 5 ms hop a 3 WPM dash (1.2 s) does not starve the envelope', () => {
+    // Пол ползёт вверх покадрово: без пересчёта EMA на хоп 5 мс он съедает
+    // размах втрое быстрее и гейт гаснет прямо посреди длинного тире.
+    const gate = new SignalGate(5);
+    feedFrames(gate, () => noise(), 300);
+    gate.update(tone(-30, 3000)); // первый кадр фронта «нестабилен» по частоте
+    let ok = true;
+    for (let i = 0; i < 240; i++) ok = gate.update(tone(-30, 3000)) && ok;
+    expect(ok).toBe(true);
+  });
+
   it('tracks an on/off dot train without losing edges', () => {
     const gate = new SignalGate();
     feedFrames(gate, () => noise(), 100);
