@@ -11,7 +11,7 @@ import { AdaptiveDecoder } from './morse/decoder';
 import { SignalGate } from './morse/envelope';
 import { Sidetone } from './audio/tone';
 import { MicAnalyser } from './audio/mic';
-import { TreeView } from './ui/tree';
+import { TreeView, DESKTOP_LAYOUT, MOBILE_LAYOUT } from './ui/tree';
 import { el, buttonEl, inputEl, svgRootEl } from './ui/dom';
 
 const WPM_KEY = 'morse_transceiver_wpm';
@@ -20,7 +20,15 @@ const KEYMODE_KEY = 'morse_transceiver_keymode';
 const TEXT_CAP = 400;
 const TICK_MS = 15;
 
-const tree = new TreeView(svgRootEl('tree'));
+// Мобильный макет дерева (крупные буквы, шахматный нижний ряд) выбирается по
+// ширине и перестраивается при её смене (поворот/ресайз).
+const mobileQuery = window.matchMedia('(max-width: 600px)');
+let tree = new TreeView(svgRootEl('tree'), mobileQuery.matches ? MOBILE_LAYOUT : DESKTOP_LAYOUT);
+mobileQuery.addEventListener('change', () => {
+  const svg = svgRootEl('tree');
+  svg.replaceChildren();
+  tree = new TreeView(svg, mobileQuery.matches ? MOBILE_LAYOUT : DESKTOP_LAYOUT);
+});
 const tone = new Sidetone();
 const mic = new MicAnalyser();
 
@@ -241,10 +249,19 @@ paddleModeBtn.addEventListener('click', () => setKeyMode('paddle'));
 
 async function startMic(): Promise<void> {
   statusEl.textContent = '';
+  // На http:// (кроме localhost) getUserMedia просто отсутствует — частый
+  // случай при открытии dev-сервера с телефона по LAN-адресу.
+  if (!navigator.mediaDevices) {
+    statusEl.textContent =
+      'Microphone needs a secure context — open this page over HTTPS (or localhost).';
+    return;
+  }
   try {
     await mic.start();
-  } catch {
-    statusEl.textContent = 'Microphone unavailable — check the browser permission.';
+  } catch (e) {
+    statusEl.textContent = e instanceof DOMException && e.name === 'NotAllowedError'
+      ? 'Microphone access denied — allow it in the browser site settings.'
+      : 'Microphone unavailable — check the browser permission.';
     return;
   }
   gate = new SignalGate();
@@ -298,7 +315,9 @@ setInterval(() => {
     applyEvents(decoder.tick(t));
     meterBar.style.width = `${Math.round(gate.normalize(frame.levelDb) * 100)}%`;
     const est = Math.round(1200 / decoder.unitMs);
-    rxInfo.textContent = `≈ ${est} WPM ${on ? '▮ tone' : '· idle'}`;
+    const carrier = gate.carrierHz;
+    const lockTxt = carrier === null ? '' : ` · ${Math.round(carrier)} Hz`;
+    rxInfo.textContent = `≈ ${est} WPM${lockTxt} ${on ? '▮ tone' : '· idle'}`;
   }
 }, TICK_MS);
 

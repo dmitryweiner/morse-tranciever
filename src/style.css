@@ -480,6 +480,10 @@ input[type='range'] {
 /* ---------- мобильный вид ---------- */
 @media (max-width: 600px) {
   h1 { font-size: 18px; letter-spacing: 0.28em; }
+  /* Буквы дерева вдвое крупнее (узлы и шахматный нижний ряд — MOBILE_LAYOUT
+     в src/ui/tree.ts); сама диаграмма остаётся того же размера. */
+  .node text { font-size: 30px; }
+  .legend text { font-size: 24px; }
   header { justify-content: center; }
   #readout { flex-direction: row; }
   #charBox { min-width: 74px; }

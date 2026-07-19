@@ -98,7 +98,7 @@ describe('AdaptiveDecoder', () => {
   });
 
   it('survives a bouncy mechanical beeper (timings from a real recording)', () => {
-    // Сегменты из sample3.wav (3 кГц пищалка, ~4 WPM): S, O с «заикающимся»
+    // Сегменты из samples/SOS3.wav (3 кГц пищалка, ~4 WPM): S, O с «заикающимся»
     // третьим тире (дребезг кнопки — осколки 5–95 мс), снова S с осколком.
     const segs = [
       310, -95, 315, -35, 300, -850,                    // S (точки ~300 мс)

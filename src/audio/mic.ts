@@ -27,22 +27,35 @@ export class MicAnalyser {
 
   async start(): Promise<void> {
     if (this.analyser) return;
-    // Speech-oriented processing mangles steady tones — ask for a raw feed.
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    });
+    // Контекст создаётся СИНХРОННО, до первого await: на Android Chrome
+    // активация жеста истекает после диалога разрешений, и AudioContext,
+    // созданный после await, остаётся suspended — анализатор вечно отдаёт
+    // тишину («уровень сигнала нулевой»). start() должен вызываться
+    // синхронно из обработчика клика.
     const ctx = new AudioContext();
-    await ctx.resume();
+    void ctx.resume();
+    this.ctx = ctx;
+    let stream: MediaStream;
+    try {
+      // Speech-oriented processing mangles steady tones — ask for a raw feed.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+    } catch (e) {
+      void ctx.close();
+      this.ctx = null;
+      throw e;
+    }
+    await ctx.resume().catch(() => {});
     const src = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = FFT_SIZE;
     analyser.smoothingTimeConstant = 0; // временное сглаживание размазало бы фронты
     src.connect(analyser);
-    this.ctx = ctx;
     this.stream = stream;
     this.analyser = analyser;
     this.bins = new Float32Array(analyser.frequencyBinCount);
@@ -52,6 +65,9 @@ export class MicAnalyser {
     if (!this.ctx || !this.analyser || !this.bins) {
       return { levelDb: -120, contrastDb: 0, peakHz: 0 };
     }
+    // Самолечение: если контекст так и не вышел из suspended (или система
+    // приостановила его), пробуем поднять на каждом опросе.
+    if (this.ctx.state !== 'running') void this.ctx.resume().catch(() => {});
     this.analyser.getFloatFrequencyData(this.bins);
     const hzPerBin = this.ctx.sampleRate / FFT_SIZE;
     const lo = Math.max(1, Math.floor(BAND_LOW_HZ / hzPerBin));

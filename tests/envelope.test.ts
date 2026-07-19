@@ -98,6 +98,46 @@ describe('SignalGate (tonality filter)', () => {
     expect(feedFrames(gate, () => tone(-35), 4)).toBe(true);
   });
 
+  it('locks onto the carrier after a sustained mark and reports it', () => {
+    const gate = new SignalGate();
+    feedFrames(gate, () => noise(), 50);
+    feedFrames(gate, () => tone(-30, 3000), 4);
+    expect(gate.carrierHz).toBeNull(); // короткий всплеск замок не ставит
+    feedFrames(gate, () => tone(-30, 3000), 8);
+    expect(gate.carrierHz).not.toBeNull();
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(100);
+  });
+
+  it('after locking, a brief tone on another frequency is rejected', () => {
+    const gate = new SignalGate();
+    feedFrames(gate, () => noise(), 50);
+    feedFrames(gate, () => tone(-30, 3000), 12);
+    feedFrames(gate, () => noise(), 10);
+    // Помеха на 600 Гц короче порога перезахвата (~27 кадров) — не сигнал.
+    expect(feedFrames(gate, () => tone(-30, 600), 10)).toBe(false);
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(100);
+    // А свой тон по-прежнему принимается.
+    expect(feedFrames(gate, () => tone(-30, 3000), 3)).toBe(true);
+  });
+
+  it('a persistent new carrier re-locks the gate', () => {
+    const gate = new SignalGate();
+    feedFrames(gate, () => noise(), 50);
+    feedFrames(gate, () => tone(-30, 3000), 12);
+    feedFrames(gate, () => noise(), 10);
+    // Новый отправитель на 600 Гц: держится дольше порога — перезахват.
+    expect(feedFrames(gate, () => tone(-30, 600), 40)).toBe(true);
+    expect(Math.abs((gate.carrierHz ?? 0) - 600)).toBeLessThan(100);
+  });
+
+  it('the lock is released after a long silence', () => {
+    const gate = new SignalGate();
+    feedFrames(gate, () => noise(), 50);
+    feedFrames(gate, () => tone(-30, 3000), 12);
+    feedFrames(gate, () => noise(), 1400);
+    expect(gate.carrierHz).toBeNull();
+  });
+
   it('tracks an on/off dot train without losing edges', () => {
     const gate = new SignalGate();
     feedFrames(gate, () => noise(), 100);

@@ -16,11 +16,14 @@ const FLOOR_RISE = 0.01;   // …and creeps up very slowly
 const PEAK_RISE = 0.5;     // peak chases loud frames fast…
 const PEAK_FALL = 0.002;   // …and decays very slowly
 const MIN_SNR_DB = 12;     // below this spread there is no signal at all
-// Пороги почти симметричны относительно середины фронта FFT-магнитуды: тогда
-// удлинение метки на включении компенсируется удлинением на выключении и
-// измеренные длительности близки к реальным. Зазор 12% — гистерезис.
-const ON_FRAC = 0.5;       // turn on above floor + 50% of the spread
-const OFF_FRAC = 0.38;     // turn off below floor + 38%
+// Пороги почти симметричны относительно ~57% фронта FFT-магнитуды: удлинение
+// метки на включении компенсируется на выключении, измеренные длительности
+// близки к реальным. Зазор 15% — гистерезис. Порог включения поднят до 65%
+// размаха сознательно: тихая «возня» с ключом перед посылкой (реальные
+// записи samples/) сидит около половины размаха и при пороге 50% лезла в
+// декодер дот-масштабными склейками.
+const ON_FRAC = 0.65;      // turn on above floor + 65% of the spread
+const OFF_FRAC = 0.5;      // turn off below floor + 50%
 
 export class EnvelopeGate {
   private floor: number;
@@ -81,14 +84,38 @@ const TONAL_ON_DB = 12;   // включение: пик над медианой 
 const TONAL_OFF_DB = 7;   // …выключение — когда контраст упал ниже 7 дБ
 const STABLE_HZ = 80;     // и частота пика между кадрами гуляет не больше этого
 
-// Полный детектор сигнала: амплитудный гейт И тональность.
+// Автозахват несущей: после первых посылок частота отправителя запоминается,
+// тональные помехи на других частотах игнорируются. Новая несущая должна
+// продержаться стабильно RELOCK_FRAMES кадров (~0.4 с) — тогда перезахват;
+// после долгой тишины захват отпускается.
+const LOCK_TOL_HZ = 150;
+const RELOCK_FRAMES = 27;     // ~0.4 с при опросе раз в 15 мс
+const LOCK_TTL_FRAMES = 1350; // ~20 с тишины — забываем несущую
+// Замок ставится только после 8 подряд стабильных кадров (~120 мс) НЕПРЕРЫВНОГО
+// тона: осколки «возни» (у пьезо-пищалок их пик бывает на гармонике!) короче
+// и не успевают, а до установления замка гейт ничего не режет.
+const LOCK_MIN_FRAMES = 8;
+
+// Полный детектор сигнала: амплитудный гейт И тональность И захват несущей.
 export class SignalGate {
   private amp = new EnvelopeGate();
   private tonal = false;
   private prevHz = -1e9;
+  private state = false;
+  private lockHz: number | null = null;
+  private idleFrames = 0;
+  private candHz = -1e9;
+  private candFrames = 0;
+  private pendHz = -1e9;
+  private pendFrames = 0;
 
   get isOn(): boolean {
-    return this.amp.isOn && this.tonal;
+    return this.state;
+  }
+
+  // Захваченная несущая для UI (null — ещё не поймана).
+  get carrierHz(): number | null {
+    return this.lockHz;
   }
 
   normalize(levelDb: number): number {
@@ -104,6 +131,42 @@ export class SignalGate {
     this.tonal = stable && (this.tonal
       ? frame.contrastDb > TONAL_OFF_DB
       : frame.contrastDb > TONAL_ON_DB);
-    return this.amp.update(frame.levelDb) && this.tonal;
+    let on = this.amp.update(frame.levelDb) && this.tonal;
+    if (on && this.lockHz !== null && Math.abs(frame.peakHz - this.lockHz) > LOCK_TOL_HZ) {
+      // Тон на чужой частоте: не сигнал, но кандидат на перезахват.
+      if (Math.abs(frame.peakHz - this.candHz) <= STABLE_HZ) this.candFrames++;
+      else {
+        this.candHz = frame.peakHz;
+        this.candFrames = 1;
+      }
+      if (this.candFrames >= RELOCK_FRAMES) {
+        this.lockHz = frame.peakHz;
+        this.candFrames = 0;
+      } else {
+        on = false;
+      }
+    }
+    if (on) {
+      if (this.lockHz === null) {
+        if (Math.abs(frame.peakHz - this.pendHz) <= STABLE_HZ) this.pendFrames++;
+        else {
+          this.pendHz = frame.peakHz;
+          this.pendFrames = 1;
+        }
+        if (this.pendFrames >= LOCK_MIN_FRAMES) this.lockHz = frame.peakHz;
+      } else {
+        this.lockHz += 0.2 * (frame.peakHz - this.lockHz);
+      }
+      this.idleFrames = 0;
+    } else {
+      this.pendFrames = 0;
+      this.pendHz = -1e9;
+      if (this.lockHz !== null && ++this.idleFrames > LOCK_TTL_FRAMES) {
+        this.lockHz = null;
+        this.idleFrames = 0;
+      }
+    }
+    this.state = on;
+    return on;
   }
 }

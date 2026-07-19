@@ -16,11 +16,17 @@ No backend, no runtime dependencies — pure Web Audio + SVG.
 
   Pause to finish a letter, pause longer to insert a word gap.
 - **Receive** — continuously analyses the microphone, detects a CW tone
-  (300–3400 Hz band — covers radio sidetones and household 2–3 kHz beepers,
-  sender's exact pitch doesn't matter) and decodes it. A tonality filter
-  (spectral contrast + peak-frequency stability) rejects background noise and
-  speech; decoding speed adapts to the incoming signal automatically and
-  button-bounce glitches are filtered.
+  (300–3400 Hz band — covers radio sidetones and household 2–3 kHz beepers)
+  and decodes it. The carrier frequency is detected and locked automatically
+  (shown next to the WPM estimate; tones on other frequencies are ignored
+  until a new carrier persists). A tonality filter (spectral contrast +
+  peak-frequency stability) rejects background noise and speech; decoding
+  speed adapts to the incoming signal automatically and button-bounce
+  glitches are filtered.
+
+  Note: microphone access requires a secure context — serve the page over
+  HTTPS (or open it as `localhost`, e.g. via `adb reverse` when testing on
+  an Android phone).
 
 Two phones running this page can talk to each other over the air.
 

@@ -12,9 +12,19 @@ const TOP = 44;
 const DY = 100;
 // Horizontal spread of a child at depth 1..4.
 const DX = [176, 88, 44, 22];
-const DOT_R = 15;
-const DASH_W = 38;
-const DASH_H = 24;
+
+// Размеры узлов. Мобильный вариант: буквы вдвое крупнее (font — в CSS,
+// media query), узлы больше, а нижний ряд — в шахматном порядке (stagger),
+// иначе при том же размере диаграммы 16 листьев не помещаются.
+export interface TreeLayout {
+  dotR: number;
+  dashW: number;
+  dashH: number;
+  stagger: number;
+}
+
+export const DESKTOP_LAYOUT: TreeLayout = { dotR: 15, dashW: 38, dashH: 24, stagger: 0 };
+export const MOBILE_LAYOUT: TreeLayout = { dotR: 24, dashW: 54, dashH: 36, stagger: 32 };
 
 // Мини-легенда в верхних углах: точка — влево от узла нельзя догадаться,
 // поэтому подписываем цвет/форму (круг = dot, брусок = dash).
@@ -52,8 +62,8 @@ export class TreeView {
   private lit: string[] = [];
   private flashTimers = new Map<string, number>();
 
-  constructor(svg: SVGSVGElement) {
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  constructor(svg: SVGSVGElement, private layout: TreeLayout = DESKTOP_LAYOUT) {
+    svg.setAttribute('viewBox', `0 0 ${W} ${H + layout.stagger}`);
     const links = document.createElementNS(NS, 'g');
     const nodes = document.createElementNS(NS, 'g');
     svg.append(links, nodes, buildLegend());
@@ -115,7 +125,6 @@ export class TreeView {
   ): void {
     const depth = code.length;
     if (depth >= MAX_CODE_LENGTH) return;
-    const cy = y + DY;
     // Как на карточке: тире — влево, точка — вправо.
     const children: Array<['-' | '.', number]> = [
       ['-', x - DX[depth]],
@@ -123,6 +132,12 @@ export class TreeView {
     ];
     for (const [element, cx] of children) {
       const childCode = code + element;
+      // Листья (глубина 4) при stagger чередуют высоту по чётности позиции.
+      let cy = y + DY;
+      if (childCode.length === MAX_CODE_LENGTH && this.layout.stagger) {
+        const slot = Math.round(((cx - W / 2) / DX[3] - 1) / 2);
+        cy += (((slot % 2) + 2) % 2 === 0 ? -1 : 1) * this.layout.stagger;
+      }
       const link = document.createElementNS(NS, 'line');
       link.setAttribute('x1', String(x));
       link.setAttribute('y1', String(y));
@@ -139,21 +154,22 @@ export class TreeView {
   private buildNode(code: string, x: number, y: number): SVGGElement {
     const char = decodeCode(code);
     const isDash = code.endsWith('-');
+    const { dotR, dashW, dashH } = this.layout;
     const g = document.createElementNS(NS, 'g');
     g.setAttribute('transform', `translate(${x} ${y})`);
     g.setAttribute('class', `node ${isDash ? 'dash' : 'dot'}${char ? '' : ' ghost'}`);
     g.dataset.code = code;
     if (isDash) {
       const rect = document.createElementNS(NS, 'rect');
-      rect.setAttribute('x', String(-DASH_W / 2));
-      rect.setAttribute('y', String(-DASH_H / 2));
-      rect.setAttribute('width', String(DASH_W));
-      rect.setAttribute('height', String(DASH_H));
+      rect.setAttribute('x', String(-dashW / 2));
+      rect.setAttribute('y', String(-dashH / 2));
+      rect.setAttribute('width', String(dashW));
+      rect.setAttribute('height', String(dashH));
       rect.setAttribute('rx', '5');
       g.append(rect);
     } else {
       const circle = document.createElementNS(NS, 'circle');
-      circle.setAttribute('r', String(DOT_R));
+      circle.setAttribute('r', String(dotR));
       g.append(circle);
     }
     if (char) {
