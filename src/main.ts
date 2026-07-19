@@ -318,6 +318,8 @@ setInterval(() => {
     const carrier = gate.carrierHz;
     const lockTxt = carrier === null ? '' : ` · ${Math.round(carrier)} Hz`;
     rxInfo.textContent = `≈ ${est} WPM${lockTxt} ${on ? '▮ tone' : '· idle'}`;
+    // Временная диагностика бага «нет захвата звука» на Android Chrome.
+    statusEl.textContent = `${mic.debugLine} · peak ${Math.round(frame.levelDb)} dB`;
   }
 }, TICK_MS);
 

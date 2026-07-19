@@ -25,6 +25,18 @@ export class MicAnalyser {
     return this.analyser !== null;
   }
 
+  // Диагностика для охоты на «уровень 0» на Android Chrome: состояние
+  // контекста и дорожки различает четыре разных отказа (suspended-контекст,
+  // muted-трек, ended-трек, мёртвый маршрут при живом графе).
+  get debugLine(): string {
+    if (!this.ctx || !this.stream) return 'mic off';
+    const track = this.stream.getAudioTracks()[0];
+    const trackTxt = track
+      ? `${track.readyState}${track.muted ? ' MUTED' : ''}${track.enabled ? '' : ' disabled'}`
+      : 'none';
+    return `ctx ${this.ctx.state} @${Math.round(this.ctx.sampleRate)} Hz · track ${trackTxt}`;
+  }
+
   async start(): Promise<void> {
     if (this.analyser) return;
     // Контекст создаётся СИНХРОННО, до первого await: на Android Chrome
