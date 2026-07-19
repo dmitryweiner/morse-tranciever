@@ -8,8 +8,9 @@ No backend, no runtime dependencies — pure Web Audio + SVG.
 - **Transmit** — two key types, switchable:
   - *Straight* — one big brass key (button or Space bar): short press is a
     dot, long press is a dash, exactly like a classic straight key.
-  - *Paddle* — dash and dot buttons (or ←/→): element length is generated
-    automatically at the set WPM, holding a paddle repeats the element,
+  - *Paddle* — dash and dot buttons (keyboard: ←/→ or `-`/`.`): element
+    length is generated automatically at the set WPM, holding a paddle repeats
+    the element,
     holding both alternates them (iambic squeeze), and a tap during the
     inter-element gap is remembered — like a real electronic keyer.
 
@@ -26,7 +27,9 @@ Two phones running this page can talk to each other over the air.
 Both modes drive the same **dichotomic tree diagram** (the classic brass
 training card): as elements arrive, the path from the antenna lights up —
 dash goes left, dot goes right — and the committed letter flashes its node.
-Decoded/keyed text accumulates in a line below the current letter.
+Dashes are brass bars, dots are patina-teal circles (the paddle buttons and
+the running code readout share the same shapes and colours). Decoded/keyed
+text accumulates in a line below the current letter.
 
 ## Settings
 
@@ -43,13 +46,15 @@ Alphabet: letters A–Z (ITU codes), matching the training-card diagram.
 npm install
 npm run dev        # Vite dev server on :5173
 npm run check      # typecheck + lint + unit tests
-npm run shot       # headless screenshots + TX smoke (keys the letter A)
+npm run shot       # headless screenshots + TX smoke (keys A on the straight
+                   # key, T on the paddle)
 npm run rx         # end-to-end receive test: generated Morse WAV → fake mic
 npm run rx -- --file rec.wav   # feed a real recording through the browser
 npm run wav -- rec.wav         # offline analysis: spectrum, envelope, decode
 npm run build      # production build into ./docs
 ```
 
-The DSP/decoding logic (`src/morse/*`) is pure TypeScript with no Web Audio
-dependencies and is fully unit-tested; audio and DOM glue live in
-`src/audio/*`, `src/ui/*`, `src/main.ts`.
+The DSP/decoding logic (`src/morse/*`) and the offline WAV testbench
+(`src/analysis/wavlab.ts`) are pure TypeScript with no Web Audio dependencies
+and are fully unit-tested; audio and DOM glue live in `src/audio/*`,
+`src/ui/*`, `src/main.ts`.
