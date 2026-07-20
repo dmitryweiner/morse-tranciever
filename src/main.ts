@@ -152,7 +152,7 @@ function applyEvents(events: MorseEvent[]): void {
 
 function pressKey(): void {
   if (keyIsDown || mode !== 'tx') return;
-  stopSend(); // любое нажатие ключа обрывает передачу текста
+  stopSend(); // страховка: Send живёт в режиме Text, смена режима его уже глушит
   keyIsDown = true;
   keyBtn.classList.add('down');
   sidetoneOn();
@@ -183,7 +183,7 @@ keyBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function paddlePress(element: MorseElement): void {
   if (mode !== 'tx' || keyMode !== 'paddle') return;
-  stopSend(); // любое нажатие ключа обрывает передачу текста
+  stopSend(); // страховка: Send живёт в режиме Text, смена режима его уже глушит
   tone.ensure(); // синхронно в жесте — важно для iOS
   (element === '.' ? dotBtn : dashBtn).classList.add('down');
   applyEvents(paddle.press(element, now()));

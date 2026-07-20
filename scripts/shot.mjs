@@ -2,7 +2,7 @@
 // Скриншоты приложения в headless-Chromium + смоук передачи: «выстукивает»
 // букву A на ключе реальными таймингами и проверяет, что она попала в текст.
 //
-//   node scripts/shot.mjs                  # base / keying / received / receive
+//   node scripts/shot.mjs                  # base / keying / received / paddle / text / receive
 //   node scripts/shot.mjs --mobile         # мобильный вьюпорт 420×850
 //   node scripts/shot.mjs --preview        # прод-сборка из docs (vite preview :4173)
 //   node scripts/shot.mjs --out shots2     # каталог для кадров (default shots)
