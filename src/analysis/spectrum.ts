@@ -5,7 +5,10 @@
 
 import type { SpectralFrame } from '../morse/envelope';
 
-export const BAND_LOW_HZ = 300;
+// Низ поднят с 300: бытовой гул/вибрации (шаги, касания телефона) сидят у
+// нижней кромки полосы и на реальных записях крали замок несущей и рожали
+// ложные буквы; собственный слайдер Tone всё равно начинается с 400 Гц.
+export const BAND_LOW_HZ = 400;
 // Верх — с запасом под бытовые пищалки (типичные 2–3.2 кГц), а не только
 // «радийные» 400–1000 Гц: реальный тестовый зуммер пользователя — 3000 Гц.
 export const BAND_HIGH_HZ = 3400;
@@ -68,11 +71,16 @@ export class SpectrumAnalyser {
       band.push(p);
       if (p > max) { max = p; peakHz = f; }
     }
-    band.sort((a, b) => a - b);
+    const sorted = [...band].sort((a, b) => a - b);
     return {
       levelDb: max,
-      contrastDb: max - band[Math.floor(band.length / 2)],
+      contrastDb: max - sorted[Math.floor(sorted.length / 2)],
       peakHz,
+      // Полный спектр полосы — гейт после захвата несущей меряет сигнал
+      // прямо на ней (когерентный детектор), см. SignalGate.
+      bandDb: band,
+      bandStartHz: this.freqs[0],
+      bandStepHz: this.sampleRate / this.windowSize,
     };
   }
 }

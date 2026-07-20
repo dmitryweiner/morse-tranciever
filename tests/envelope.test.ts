@@ -120,14 +120,30 @@ describe('SignalGate (tonality filter)', () => {
     expect(feedFrames(gate, () => tone(-30, 3000), 3)).toBe(true);
   });
 
-  it('a persistent new carrier re-locks the gate', () => {
+  it('a persistent new carrier re-locks the gate after the old one goes idle', () => {
     const gate = new SignalGate();
     feedFrames(gate, () => noise(), 50);
     feedFrames(gate, () => tone(-30, 3000), 12);
-    feedFrames(gate, () => noise(), 10);
-    // Новый отправитель на 600 Гц: держится дольше порога — перезахват.
+    // Старый отправитель замолчал надолго (больше словесной паузы)…
+    feedFrames(gate, () => noise(), 200);
+    // …новый на 600 Гц держится дольше порога — перезахват.
     expect(feedFrames(gate, () => tone(-30, 600), 40)).toBe(true);
     expect(Math.abs((gate.carrierHz ?? 0) - 600)).toBeLessThan(100);
+  });
+
+  it('an interfering tone inside a word gap cannot steal the lock', () => {
+    // Реальный случай (TEST DMITRY MAMA1.wav): громкий гул в паузах между
+    // словами накапливал кандидатуру перезахвата, замок уезжал 588→305 Гц и
+    // настоящий сигнал дальше резался как «чужая частота».
+    const gate = new SignalGate();
+    feedFrames(gate, () => noise(), 50);
+    feedFrames(gate, () => tone(-30, 3000), 12);
+    feedFrames(gate, () => noise(), 40); // пауза ~0.6 с — обычный словесный разрыв
+    // Помеха держится дольше порога перезахвата, но несущая недавно звучала.
+    expect(feedFrames(gate, () => tone(-30, 600), 60)).toBe(false);
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(100);
+    // Свой сигнал по-прежнему принимается.
+    expect(feedFrames(gate, () => tone(-30, 3000), 3)).toBe(true);
   });
 
   it('the lock is released after a long silence', () => {
@@ -161,6 +177,56 @@ describe('SignalGate (tonality filter)', () => {
     let ok = true;
     for (let i = 0; i < 240; i++) ok = gate.update(tone(-30, 3000)) && ok;
     expect(ok).toBe(true);
+  });
+
+  // Кадр с полным спектром полосы: пары [Гц, дБ] поверх ровного пола -85.
+  function bandFrame(peaks: Array<[number, number]>): SpectralFrame {
+    const startHz = 400;
+    const stepHz = 50;
+    const band = new Array<number>(61).fill(-85);
+    for (const [hz, db] of peaks) {
+      const i = Math.round((hz - startHz) / stepHz);
+      if (i >= 0 && i < band.length) band[i] = Math.max(band[i], db);
+    }
+    let max = -Infinity;
+    let peakHz = startHz;
+    for (let i = 0; i < band.length; i++) {
+      if (band[i] > max) { max = band[i]; peakHz = startHz + i * stepHz; }
+    }
+    return { levelDb: max, contrastDb: max - -85, peakHz, bandDb: band, bandStartHz: startHz, bandStepHz: stepHz };
+  }
+
+  it('when locked, measures the signal AT the carrier, not the band peak', () => {
+    // Реальный случай (TEST DMITRY MAMA1.wav): гул 400–550 Гц громче несущей
+    // рвал метки в клочья и фабриковал точки в межбуквенных паузах.
+    const gate = new SignalGate(5);
+    for (let i = 0; i < 300; i++) gate.update(bandFrame([]));
+    for (let i = 0; i < 30; i++) gate.update(bandFrame([[3000, -30]]));
+    expect(gate.carrierHz).not.toBeNull();
+    // Несущая звучит, но пик полосы — громкий гул на 500 Гц: метка не рвётся.
+    let ok = true;
+    for (let i = 0; i < 30; i++) ok = gate.update(bandFrame([[3000, -33], [500, -25]])) && ok;
+    expect(ok).toBe(true);
+    // Несущая замолчала — тот же громкий гул сам по себе сигналом не считается.
+    let leaked = false;
+    for (let i = 0; i < 60; i++) leaked = gate.update(bandFrame([[500, -25]])) || leaked;
+    expect(leaked).toBe(false);
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(120);
+  });
+
+  it('migrates the lock from a weak harmonic to the dominant component', () => {
+    // Реальный случай (samples/TEST1.wav): на онсете пик у пьезо — на
+    // гармонике 3 кГц, замок вставал туда; основная 1.4 кГц громче на
+    // плато, но перезахват блокировался idle-защитой — гейт мерил рваную
+    // огибающую гармоники и точки сливались.
+    const gate = new SignalGate(5);
+    for (let i = 0; i < 300; i++) gate.update(bandFrame([]));
+    // Онсет: гармоника громче — замок на 3000.
+    for (let i = 0; i < 30; i++) gate.update(bandFrame([[3000, -30], [1400, -40]]));
+    expect(Math.abs((gate.carrierHz ?? 0) - 3000)).toBeLessThan(120);
+    // Плато: основная стабильно намного громче — замок переезжает на 1400.
+    for (let i = 0; i < 40; i++) gate.update(bandFrame([[3000, -45], [1400, -30]]));
+    expect(Math.abs((gate.carrierHz ?? 0) - 1400)).toBeLessThan(120);
   });
 
   it('tracks an on/off dot train without losing edges', () => {

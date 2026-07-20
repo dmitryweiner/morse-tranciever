@@ -47,3 +47,30 @@ describe('real beeper recordings (ground truth: TEST)', () => {
     expect(decode('samples/SOS2.wav')).toBe('AOT');
   });
 });
+
+// Автоматическая передача (кнопка Send, 15 WPM, 600 Гц) с одного телефона,
+// запись микрофоном другого: бытовой гул 300–700 Гц, реверберация комнаты.
+// Пробелы здесь настоящие (словесные паузы отправителя) — сохраняем.
+function decodeAir(path: string): string {
+  const wav = decodeWavPcm16(new Uint8Array(readFileSync(path)));
+  return runRxChain(wav, 15).text;
+}
+
+describe('over-the-air recordings (phone speaker → phone mic, 15 WPM)', () => {
+  it.skipIf(!has('samples/ABCDEFGH.wav'))('ABCDEFGH.wav', () => {
+    expect(decodeAir('samples/ABCDEFGH.wav')).toBe('ABCDEFGH');
+  });
+
+  it.skipIf(!has('samples/TEST DMITRY MAMA.wav'))('TEST DMITRY MAMA.wav — известный предел', () => {
+    // Мусорный префикс «I T EEE» — гул до захвата несущей + первая T,
+    // изрезанная шумом (замка ещё нет — когерентный детектор не работает).
+    // До доработок читалось «E T MEST DZTR?AMA».
+    expect(decodeAir('samples/TEST DMITRY MAMA.wav')).toBe('I T EEEST DMITRY MAMA');
+  });
+
+  it.skipIf(!has('samples/TEST DMITRY MAMA1.wav'))('TEST DMITRY MAMA1.wav — известный предел', () => {
+    // R→G: гул откусил первую точку R прямо в метке; хвостовая E — осколок
+    // шума. До доработок читалось «TEST DMITRY ET TAT» (замок крала помеха).
+    expect(decodeAir('samples/TEST DMITRY MAMA1.wav')).toBe('TEST DMITGY MAMAE');
+  });
+});

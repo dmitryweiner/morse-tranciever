@@ -157,6 +157,40 @@ describe('AdaptiveDecoder', () => {
     expect(render(events)).toBe('T E'); // пауза 1350 мс — словесная на 5 WPM
   });
 
+  it('adapts gap thresholds to stretched marks (speaker→mic reverb)', () => {
+    // Реальный случай (TEST DMITRY MAMA1.wav): хвост реверберации удлиняет
+    // метки на ~35 мс, паузы на столько же сжимаются. Оценка юнита растёт
+    // (точки растянуты), буквенная пауза 205 мс падает ниже порога 2×unit
+    // (~230) — буквы сливаются (T+R → C). Пороги пауз должны кластеризоваться
+    // по ИЗМЕРЕННЫМ паузам, как метки — по длительностям.
+    const dec = new AdaptiveDecoder(80);
+    const events: MorseEvent[] = [];
+    let t = 1000;
+    const play = (text: string) => {
+      for (const word of text.split(' ')) {
+        for (const ch of word) {
+          for (const el of MORSE[ch]) {
+            events.push(...dec.signal(true, t));
+            t += (el === '.' ? 115 : 275); // метки растянуты на +35 мс
+            events.push(...dec.signal(false, t));
+            t += 45; // элементная пауза 80−35
+            events.push(...dec.tick(t));
+          }
+          t += 160; // буквенная пауза: 45+160 = 205 (240−35)
+          events.push(...dec.tick(t));
+        }
+        t += 320; // словесная пауза: 205+320 = 525 (560−35)
+        events.push(...dec.tick(t));
+      }
+    };
+    // Прогрев: кластеры пауз требуют по ≥3 образца — первые буквы холодного
+    // старта могут слипаться (как и при чужой скорости, это документировано).
+    play('PARIS');
+    play('TEST DMITRY MAMA');
+    events.push(...dec.tick(t + 2000));
+    expect(render(events).endsWith('TEST DMITRY MAMA')).toBe(true);
+  });
+
   it('setUnitMs resets the learned dash/dot ratio to the default 3', () => {
     const dec = new AdaptiveDecoder(240);
     playText(dec, 'PARIS PARIS', 250, 475);

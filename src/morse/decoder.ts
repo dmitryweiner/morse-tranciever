@@ -13,7 +13,7 @@
 // speed may garble — inherent to any adaptive CW decoder.
 
 import { decodeCode, type MorseEvent } from './code';
-import { LETTER_GAP_UNITS, WORD_GAP_UNITS } from './timing';
+import { LETTER_GAP_UNITS } from './timing';
 
 const WINDOW = 12;          // recent marks kept for clustering
 // Разрыв СРЕДНИХ кластеров, при котором тире и точки несомненны даже по
@@ -57,6 +57,14 @@ const MIN_MARK_UNITS = 0.45;
 // дребезга парой формировали ложный кластер и обваливали оценку юнита
 // (реальный случай: samples/SOS2.wav, 240 → 82 мс).
 const ADAPT_MIN_UNITS = 0.45;
+// Адаптация порога пауз: реверберация/инерция гейта растягивают метки и на
+// столько же СЖИМАЮТ паузы (TEST DMITRY MAMA1.wav: буквенная пауза 240 мс
+// измерялась как ~175 при пороге 2×unit≈194 — буквы сливались). Окно
+// последних пауз кластеризуется так же, как метки: порог буквы — геом.
+// среднее средних кластеров, словесный порог — ×2.5 буквенного (5u/2u).
+const GAP_WINDOW = 10;
+const GAP_CLUSTER_MIN_RATIO = 1.8; // элемент:буква — учебные 1:3, сжатые ~1:2.5
+const WORD_PER_LETTER = 2.5;
 
 export class AdaptiveDecoder {
   private unit: number;
@@ -68,6 +76,7 @@ export class AdaptiveDecoder {
   private lastEdge: number | null = null;  // конец последней НАСТОЯЩЕЙ метки
   private wordEmitted = true;
   private marks: number[] = [];
+  private gaps: number[] = [];
 
   constructor(initialUnitMs = 60) {
     this.unit = clampUnit(initialUnitMs);
@@ -94,6 +103,7 @@ export class AdaptiveDecoder {
     this.unit = clampUnit(ms);
     this.ratio = RATIO_DEFAULT;
     this.marks = [];
+    this.gaps = [];
   }
 
   signal(nowOn: boolean, t: number): MorseEvent[] {
@@ -123,6 +133,15 @@ export class AdaptiveDecoder {
     if (this.markEnd !== null && t - this.markEnd >= GLITCH_MERGE_MS) {
       const dur = this.markEnd - (this.markStart ?? this.markEnd);
       if (dur >= MIN_MARK_UNITS * this.unit) {
+        // Пауза перед этой меткой подтвердилась — учим пороги пауз (кроме
+        // словесных: они дали бы третий кластер).
+        if (this.lastEdge !== null && this.markStart !== null) {
+          const gapBefore = this.markStart - this.lastEdge;
+          if (gapBefore > 0 && gapBefore < WORD_PER_LETTER * this.letterGapMs()) {
+            this.gaps.push(gapBefore);
+            if (this.gaps.length > GAP_WINDOW) this.gaps.shift();
+          }
+        }
         const element = this.classifyAndAdapt(dur);
         this.buffer += element;
         this.wordEmitted = false;
@@ -138,15 +157,35 @@ export class AdaptiveDecoder {
     // меряются от устаревшего lastEdge и буква коммитится прямо поверх метки.
     if (this.markEnd !== null || this.lastEdge === null) return events;
     const gap = t - this.lastEdge;
-    if (this.buffer && gap > LETTER_GAP_UNITS * this.unit) {
+    const letterThr = this.letterGapMs();
+    if (this.buffer && gap > letterThr) {
       events.push({ kind: 'letter', code: this.buffer, char: decodeCode(this.buffer) });
       this.buffer = '';
     }
-    if (!this.buffer && !this.wordEmitted && gap > WORD_GAP_UNITS * this.unit) {
+    if (!this.buffer && !this.wordEmitted && gap > WORD_PER_LETTER * letterThr) {
       events.push({ kind: 'word' });
       this.wordEmitted = true;
     }
     return events;
+  }
+
+  // Порог буквенной паузы: по кластерам измеренных пауз (элементные против
+  // буквенных), пока их нет — учебные 2 юнита. Кластерам верим только когда
+  // они опрятные: по ≥3 паузы в каждом (у дребезжащей пищалки SOS3 пары
+  // {50,105}/{395,860} набирались из перемешанных элементных и буквенных
+  // пауз и резали букву O пополам), внутренний разброс ≤2.2× (элементные
+  // паузы SOS3 гуляют 30–395 мс — такие кластеры ложные) и порог не ниже
+  // 0.7×юнита (защита от разреза внутри элементных пауз).
+  private letterGapMs(): number {
+    const split = splitDurations(this.gaps);
+    if (split !== null && split.short.length >= 3 && split.long.length >= 3
+        && split.avgLong / split.avgShort >= GAP_CLUSTER_MIN_RATIO
+        && split.gap >= CLUSTER_MIN_GAP
+        && tight(split.short) && tight(split.long)) {
+      const thr = Math.sqrt(split.avgShort * split.avgLong);
+      if (thr >= 0.7 * this.unit) return thr;
+    }
+    return LETTER_GAP_UNITS * this.unit;
   }
 
   private classifyAndAdapt(dur: number): '.' | '-' {
@@ -154,18 +193,18 @@ export class AdaptiveDecoder {
     if (dur < ADAPT_MIN_UNITS * this.unit) return '.';
     this.marks.push(dur);
     if (this.marks.length > WINDOW) this.marks.shift();
-    const split = splitMarks(this.marks);
+    const split = splitDurations(this.marks);
     if (split !== null && isTwoClusters(split)) {
-      const threshold = Math.sqrt(split.avgDot * split.avgDash);
+      const threshold = Math.sqrt(split.avgShort * split.avgLong);
       // Одиночная «точка» не пере-оценивает юнит: это может быть осколок
       // дребезга (реальный случай: фрагмент 105 мс у пищалки утащил оценку
       // с 240 на 105 и рассыпал всё сообщение).
-      if (split.dots.length >= 2) {
-        this.unit = clampUnit(this.unit + 0.5 * (split.avgDot - this.unit));
+      if (split.short.length >= 2) {
+        this.unit = clampUnit(this.unit + 0.5 * (split.avgShort - this.unit));
         // Отношение тире/точки учим только на чистых окнах (≥2 метки в
         // каждом кластере) — одиночный выброс не задаёт ложное отношение.
-        if (split.dashes.length >= 2) {
-          this.ratio = clampRatio(this.ratio + RATIO_EMA * (split.avgDash / split.avgDot - this.ratio));
+        if (split.long.length >= 2) {
+          this.ratio = clampRatio(this.ratio + RATIO_EMA * (split.avgLong / split.avgShort - this.ratio));
         }
       }
       return dur < threshold ? '.' : '-';
@@ -179,20 +218,21 @@ export class AdaptiveDecoder {
   }
 }
 
-// Разбиение окна меток на два кластера: сортировка и разрез по максимальному
-// относительному скачку между соседями. Пороги считаются по СРЕДНИМ кластеров
-// — они устойчивее min/max к выбросам (осколки и склейки не тянут порог).
+// Разбиение окна длительностей (меток ИЛИ пауз) на два кластера: сортировка
+// и разрез по максимальному относительному скачку между соседями. Пороги
+// считаются по СРЕДНИМ кластеров — они устойчивее min/max к выбросам
+// (осколки и склейки не тянут порог).
 interface ClusterSplit {
-  dots: number[];
-  dashes: number[];
-  avgDot: number;
-  avgDash: number;
+  short: number[];
+  long: number[];
+  avgShort: number;
+  avgLong: number;
   gap: number; // относительный скачок в точке разреза
 }
 
-function splitMarks(marks: number[]): ClusterSplit | null {
-  if (marks.length < 2) return null;
-  const sorted = [...marks].sort((a, b) => a - b);
+function splitDurations(durations: number[]): ClusterSplit | null {
+  if (durations.length < 2) return null;
+  const sorted = [...durations].sort((a, b) => a - b);
   let cut = 1;
   let gap = 0;
   for (let i = 0; i + 1 < sorted.length; i++) {
@@ -202,19 +242,24 @@ function splitMarks(marks: number[]): ClusterSplit | null {
       cut = i + 1;
     }
   }
-  const dots = sorted.slice(0, cut);
-  const dashes = sorted.slice(cut);
-  return { dots, dashes, avgDot: avg(dots), avgDash: avg(dashes), gap };
+  const short = sorted.slice(0, cut);
+  const long = sorted.slice(cut);
+  return { short, long, avgShort: avg(short), avgLong: avg(long), gap };
 }
 
 function isTwoClusters(s: ClusterSplit): boolean {
-  const ratio = s.avgDash / s.avgDot;
+  const ratio = s.avgLong / s.avgShort;
   if (ratio > CLUSTER_RATIO) return true;
-  return s.dots.length >= 2 && s.dashes.length >= 2 && ratio >= CLUSTER_MIN_RATIO && s.gap >= CLUSTER_MIN_GAP;
+  return s.short.length >= 2 && s.long.length >= 2 && ratio >= CLUSTER_MIN_RATIO && s.gap >= CLUSTER_MIN_GAP;
 }
 
 function avg(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+// «Опрятный» кластер: внутренний разброс не больше 2.2× (иначе это свалка).
+function tight(xs: number[]): boolean {
+  return Math.max(...xs) / Math.min(...xs) <= 2.2;
 }
 
 function clampUnit(ms: number): number {
