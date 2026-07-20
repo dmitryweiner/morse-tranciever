@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#14100b" />
   <title>Morse Transceiver</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171208'/%3E%3Ccircle cx='9' cy='16' r='4' fill='%23d9a441'/%3E%3Crect x='16' y='13' width='11' height='6' rx='3' fill='%23d9a441'/%3E%3C/svg%3E" />
-  <script type="module" crossorigin src="./assets/index-DJQ6kDVi.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-C8S9pQab.css">
+  <script type="module" crossorigin src="./assets/index-DuL2zCgR.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-elkDyHYR.css">
 </head>
 <body>
   <div id="app">
@@ -33,25 +33,27 @@
       </div>
 
       <section id="txPanel">
-        <div id="keyModeSwitch" role="tablist" aria-label="Key type">
-          <button id="straightModeBtn" class="seg active" role="tab" aria-selected="true">Straight</button>
-          <button id="paddleModeBtn" class="seg" role="tab" aria-selected="false">Paddle</button>
+        <div id="txTopRow">
+          <div id="keyModeSwitch" role="tablist" aria-label="Transmit mode">
+            <button id="straightModeBtn" class="seg active" role="tab" aria-selected="true">Straight</button>
+            <button id="paddleModeBtn" class="seg" role="tab" aria-selected="false">Paddle</button>
+            <button id="textModeBtn" class="seg" role="tab" aria-selected="false">Text</button>
+          </div>
+          <button id="recBtn" title="Record your keying as a WAV file">● Rec</button>
         </div>
         <button id="keyBtn" aria-label="Morse key"><span>KEY</span></button>
         <div id="paddleRow" hidden>
           <button id="dashBtn" class="paddleBtn" aria-label="Dash paddle">−</button>
           <button id="dotBtn" class="paddleBtn" aria-label="Dot paddle">·</button>
         </div>
-        <p class="hint" id="txHint">Hold the key (or Space): short press — dot, long — dash.
-          Pause to finish a letter, pause longer for a word gap.</p>
-        <div id="sendRow">
-          <input id="sendInput" type="text" placeholder="Or type text to send…"
+        <div id="sendRow" hidden>
+          <input id="sendInput" type="text" placeholder="Type text to send…"
             autocomplete="off" autocapitalize="characters" spellcheck="false"
             enterkeyhint="send" maxlength="200" aria-label="Text to send" />
           <button id="sendBtn">Send</button>
         </div>
         <div id="sendLine" hidden></div>
-        <button id="recBtn" title="Record your keying as a WAV file">● Record</button>
+        <p class="hint" id="txHint">Hold the key (or Space): short press — dot, long — dash.</p>
       </section>
 
       <section id="rxPanel" hidden>
@@ -60,11 +62,13 @@
           <button id="uploadBtn" title="Decode a recorded audio file">⬆ Upload</button>
         </div>
         <input id="uploadInput" type="file" accept="audio/*,.wav" hidden />
-        <div id="meterWrap"><div id="meterBar"></div></div>
-        <div id="rxInfo">&nbsp;</div>
-        <p class="hint">Decodes Morse tones from the microphone; speed is picked up
-          automatically. Or upload a recording (WAV or any audio file) to
-          decode it offline.</p>
+        <div id="rxScope" class="idle">
+          <span id="rxScopeTitle">Receiver</span>
+          <div id="meterWrap"><div id="meterBar"></div></div>
+          <div id="rxInfo">&nbsp;</div>
+          <p class="hint" id="rxIdleHint">Decodes Morse tones from the mic or an
+            uploaded recording — speed is picked up automatically.</p>
+        </div>
       </section>
 
       <div id="settings">

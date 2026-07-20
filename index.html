@@ -31,25 +31,27 @@
       </div>
 
       <section id="txPanel">
-        <div id="keyModeSwitch" role="tablist" aria-label="Key type">
-          <button id="straightModeBtn" class="seg active" role="tab" aria-selected="true">Straight</button>
-          <button id="paddleModeBtn" class="seg" role="tab" aria-selected="false">Paddle</button>
+        <div id="txTopRow">
+          <div id="keyModeSwitch" role="tablist" aria-label="Transmit mode">
+            <button id="straightModeBtn" class="seg active" role="tab" aria-selected="true">Straight</button>
+            <button id="paddleModeBtn" class="seg" role="tab" aria-selected="false">Paddle</button>
+            <button id="textModeBtn" class="seg" role="tab" aria-selected="false">Text</button>
+          </div>
+          <button id="recBtn" title="Record your keying as a WAV file">● Rec</button>
         </div>
         <button id="keyBtn" aria-label="Morse key"><span>KEY</span></button>
         <div id="paddleRow" hidden>
           <button id="dashBtn" class="paddleBtn" aria-label="Dash paddle">−</button>
           <button id="dotBtn" class="paddleBtn" aria-label="Dot paddle">·</button>
         </div>
-        <p class="hint" id="txHint">Hold the key (or Space): short press — dot, long — dash.
-          Pause to finish a letter, pause longer for a word gap.</p>
-        <div id="sendRow">
-          <input id="sendInput" type="text" placeholder="Or type text to send…"
+        <div id="sendRow" hidden>
+          <input id="sendInput" type="text" placeholder="Type text to send…"
             autocomplete="off" autocapitalize="characters" spellcheck="false"
             enterkeyhint="send" maxlength="200" aria-label="Text to send" />
           <button id="sendBtn">Send</button>
         </div>
         <div id="sendLine" hidden></div>
-        <button id="recBtn" title="Record your keying as a WAV file">● Record</button>
+        <p class="hint" id="txHint">Hold the key (or Space): short press — dot, long — dash.</p>
       </section>
 
       <section id="rxPanel" hidden>
@@ -58,11 +60,13 @@
           <button id="uploadBtn" title="Decode a recorded audio file">⬆ Upload</button>
         </div>
         <input id="uploadInput" type="file" accept="audio/*,.wav" hidden />
-        <div id="meterWrap"><div id="meterBar"></div></div>
-        <div id="rxInfo">&nbsp;</div>
-        <p class="hint">Decodes Morse tones from the microphone; speed is picked up
-          automatically. Or upload a recording (WAV or any audio file) to
-          decode it offline.</p>
+        <div id="rxScope" class="idle">
+          <span id="rxScopeTitle">Receiver</span>
+          <div id="meterWrap"><div id="meterBar"></div></div>
+          <div id="rxInfo">&nbsp;</div>
+          <p class="hint" id="rxIdleHint">Decodes Morse tones from the mic or an
+            uploaded recording — speed is picked up automatically.</p>
+        </div>
       </section>
 
       <div id="settings">

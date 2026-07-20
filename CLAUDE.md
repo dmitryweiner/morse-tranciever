@@ -220,15 +220,20 @@ src/main.ts           сборка UI: RX — кадры пушем из mic (on
                       декодер аудио-временем кадра); общий цикл
                       setInterval(15мс) тикает кеер/paddle/sender (TX) и
                       обновляет RX-виджеты (meter/rxInfo — по lastFrame);
-                      applyEvents — единый рендер; переключатель
-                      Straight/Paddle (localStorage);
+                      applyEvents — единый рендер; переключатель способа
+                      передачи Straight/Paddle/Text (localStorage): Text —
+                      поле+Send (#sendRow виден только в нём), Record —
+                      чип в правом углу той же строки (#txTopRow);
                       клавиатура: Space — straight, ←/− тире и →/. точка —
                       paddle; Send/Stop (#sendInput/#sendBtn/#sendLine) —
                       TextSender: цикл тикает его ВМЕСТО ключей, любое
                       нажатие ключа/смена режима — stopSend();
                       window.__rxEdges — отладочный хук scripts/rx.mjs.
                       Слайдер Tone 400–3400 Гц (под пищалки, не только радио);
-                      rxInfo показывает оценку WPM и захваченную несущую
+                      RX — карточка-«приёмник» #rxScope: в простое (.idle)
+                      только однострочная подсказка, при живом приёме/разборе
+                      файла — meter + rxInfo (WPM, несущая); итог файла
+                      остаётся на экране
 tests/…               code/timing/keyer/paddle/sender/decoder/envelope
                       (+SignalGate, захват несущей)/wavlab/samples/txrecord —
                       чистые, node

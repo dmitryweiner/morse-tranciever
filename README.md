@@ -5,7 +5,7 @@ No backend, no runtime dependencies — pure Web Audio + SVG.
 
 ## Modes
 
-- **Transmit** — two key types, switchable:
+- **Transmit** — three ways to key, switchable:
   - *Straight* — one big brass key (button or Space bar): short press is a
     dot, long press is a dash, exactly like a classic straight key.
   - *Paddle* — dash and dot buttons (keyboard: ←/→ or `-`/`.`): element
@@ -13,12 +13,11 @@ No backend, no runtime dependencies — pure Web Audio + SVG.
     the element,
     holding both alternates them (iambic squeeze), and a tap during the
     inter-element gap is remembered — like a real electronic keyer.
+  - *Text* — type a line and hit **Send**: the app keys it for you with
+    textbook PARIS timings at the selected speed, highlighting the letter
+    being sent. Switching key modes aborts the transmission.
 
   Pause to finish a letter, pause longer to insert a word gap.
-
-  You can also type a line of text and hit **Send** — the app keys it for
-  you with textbook PARIS timings at the selected speed, highlighting the
-  letter being sent. Pressing any key aborts the transmission.
 
   **Record** captures your keying (straight, paddle or Send) and downloads
   it as a WAV file with the sidetone rendered at the selected Tone pitch —

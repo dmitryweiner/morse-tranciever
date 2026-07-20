@@ -52,7 +52,10 @@ const dotBtn = buttonEl('dotBtn');
 const dashBtn = buttonEl('dashBtn');
 const straightModeBtn = buttonEl('straightModeBtn');
 const paddleModeBtn = buttonEl('paddleModeBtn');
+const textModeBtn = buttonEl('textModeBtn');
 const txHint = el('txHint');
+const rxScope = el('rxScope');
+const sendRow = el('sendRow');
 const sendInput = inputEl('sendInput');
 const sendBtn = buttonEl('sendBtn');
 const sendLine = el('sendLine');
@@ -70,8 +73,10 @@ const toneVal = el('toneVal');
 let wpm = clampInt(localStorage.getItem(WPM_KEY), 5, 30, 15);
 let toneHz = clampInt(localStorage.getItem(TONE_KEY), 400, 3400, 600);
 let mode: 'tx' | 'rx' = 'tx';
-let keyMode: 'straight' | 'paddle' =
-  localStorage.getItem(KEYMODE_KEY) === 'paddle' ? 'paddle' : 'straight';
+type KeyMode = 'straight' | 'paddle' | 'text';
+const savedKeyMode = localStorage.getItem(KEYMODE_KEY);
+let keyMode: KeyMode =
+  savedKeyMode === 'paddle' || savedKeyMode === 'text' ? savedKeyMode : 'straight';
 let text = '';
 let keyIsDown = false;
 let paddleToneOn = false;
@@ -247,7 +252,31 @@ window.addEventListener('blur', () => {
   paddle.releaseAll();
 });
 
-function setKeyMode(next: 'straight' | 'paddle'): void {
+// Подсказки — по одной строке на режим: длинные абзацы внизу читались кашей.
+const KEY_MODE_HINTS: Record<KeyMode, string> = {
+  straight: 'Hold the key (or Space): short press — dot, long — dash.',
+  paddle: 'Tap − or · (or ←/→): element length is automatic, hold to repeat.',
+  text: 'Type a message and press Send — it is keyed out at the set speed.',
+};
+
+const KEY_MODE_BTNS: Record<KeyMode, HTMLButtonElement> = {
+  straight: straightModeBtn,
+  paddle: paddleModeBtn,
+  text: textModeBtn,
+};
+
+function applyKeyModeUi(): void {
+  for (const [m, btn] of Object.entries(KEY_MODE_BTNS)) {
+    btn.classList.toggle('active', m === keyMode);
+    btn.setAttribute('aria-selected', String(m === keyMode));
+  }
+  keyBtn.hidden = keyMode !== 'straight';
+  paddleRow.hidden = keyMode !== 'paddle';
+  sendRow.hidden = keyMode !== 'text';
+  txHint.textContent = KEY_MODE_HINTS[keyMode];
+}
+
+function setKeyMode(next: KeyMode): void {
   if (keyMode === next) return;
   keyMode = next;
   localStorage.setItem(KEYMODE_KEY, next);
@@ -259,21 +288,12 @@ function setKeyMode(next: 'straight' | 'paddle'): void {
   sidetoneOff();
   tree.setPath('');
   codeNow.textContent = '';
-  straightModeBtn.classList.toggle('active', next === 'straight');
-  paddleModeBtn.classList.toggle('active', next === 'paddle');
-  straightModeBtn.setAttribute('aria-selected', String(next === 'straight'));
-  paddleModeBtn.setAttribute('aria-selected', String(next === 'paddle'));
-  keyBtn.hidden = next !== 'straight';
-  paddleRow.hidden = next !== 'paddle';
-  txHint.textContent = next === 'straight'
-    ? 'Hold the key (or Space): short press — dot, long — dash. ' +
-      'Pause to finish a letter, pause longer for a word gap.'
-    : 'Tap − or · (or ←/→): element length is automatic. Hold to repeat, ' +
-      'hold both to alternate. Pause to finish a letter.';
+  applyKeyModeUi();
 }
 
 straightModeBtn.addEventListener('click', () => setKeyMode('straight'));
 paddleModeBtn.addEventListener('click', () => setKeyMode('paddle'));
+textModeBtn.addEventListener('click', () => setKeyMode('text'));
 
 // ---------- передача по тексту ----------
 
@@ -351,6 +371,12 @@ sendInput.addEventListener('keydown', (e) => {
 
 // ---------- приём ----------
 
+// Карточка-«приёмник»: в простое — только подсказка, при живом приёме или
+// разборе файла — уровень и строка статуса (результат файла остаётся виден).
+function setRxScopeLive(live: boolean): void {
+  rxScope.classList.toggle('idle', !live);
+}
+
 async function startMic(): Promise<void> {
   if (analysingFile) return; // пока разбирается файл — микрофон не включаем
   statusEl.textContent = '';
@@ -373,6 +399,7 @@ async function startMic(): Promise<void> {
   }
   micBtn.classList.add('live');
   micBtn.textContent = '■ Stop listening';
+  setRxScopeLive(true);
 }
 
 function stopMic(): void {
@@ -381,6 +408,7 @@ function stopMic(): void {
   micBtn.textContent = '▶ Start listening';
   meterBar.style.width = '0%';
   rxInfo.textContent = ' ';
+  setRxScopeLive(false);
   tree.setPath('');
   codeNow.textContent = '';
 }
@@ -419,6 +447,7 @@ async function analyzeFile(file: File): Promise<void> {
   analysingFile = true;
   uploadBtn.disabled = true;
   stopMic(); // живой приём и разбор файла не смешиваем
+  setRxScopeLive(true); // прогресс и итог разбора — в карточке приёмника
   statusEl.textContent = '';
   try {
     const wav = await decodeAudioFile(file);
@@ -437,6 +466,7 @@ async function analyzeFile(file: File): Promise<void> {
     }
   } catch {
     statusEl.textContent = 'Could not decode this audio file.';
+    setRxScopeLive(false);
     rxInfo.textContent = ' ';
   } finally {
     analysingFile = false;
@@ -467,7 +497,8 @@ function downloadWav(samples: Float32Array, sampleRate: number): void {
 function finishTxRecording(): void {
   const marks = txRec.stop(now());
   recBtn.classList.remove('rec');
-  recBtn.textContent = '● Record';
+  recBtn.textContent = '● Rec';
+  recBtn.title = 'Record your keying as a WAV file';
   // Ни одной метки — сохранять нечего, запись просто закрывается.
   if (marks) downloadWav(renderToneWav(marks), TX_REC_SAMPLE_RATE);
 }
@@ -482,7 +513,7 @@ function updateRecTimer(): void {
   const s = Math.floor(txRec.elapsedMs(t) / 1000);
   const mm = String(Math.floor(s / 60));
   const ss = String(s % 60).padStart(2, '0');
-  recBtn.textContent = `■ ${mm}:${ss} — save`;
+  recBtn.textContent = `■ ${mm}:${ss}`;
 }
 
 recBtn.addEventListener('click', () => {
@@ -491,7 +522,8 @@ recBtn.addEventListener('click', () => {
   } else {
     txRec.start(now());
     recBtn.classList.add('rec');
-    recBtn.textContent = '■ 0:00 — save';
+    recBtn.textContent = '■ 0:00';
+    recBtn.title = 'Stop and save the WAV';
   }
 });
 
@@ -609,11 +641,4 @@ buttonEl('clearBtn').addEventListener('click', () => {
 
 applyWpm();
 applyTone();
-// Применить сохранённый режим ключа (setKeyMode no-op при совпадении).
-keyBtn.hidden = keyMode !== 'straight';
-paddleRow.hidden = keyMode !== 'paddle';
-if (keyMode === 'paddle') {
-  const saved = keyMode;
-  keyMode = 'straight';
-  setKeyMode(saved);
-}
+applyKeyModeUi(); // применить сохранённый режим передачи

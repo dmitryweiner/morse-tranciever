@@ -116,10 +116,13 @@ if (!typedPaddle || !typedPaddle.trimEnd().endsWith('T')) {
   errors.push(`paddle: ожидалась буква T в конце, получено '${typedPaddle}'`);
 }
 
-// Передача по тексту: «5.» отстукивается сама (коды глубже дерева — путь
-// подсвечивается только до 4-го уровня, живой DOM не должен падать);
-// во время передачи кнопка переключается в Stop.
-await page.locator('#straightModeBtn').click();
+// Передача по тексту (режим Text): «5.» отстукивается сама (коды глубже
+// дерева — путь подсвечивается только до 4-го уровня, живой DOM не должен
+// падать); во время передачи кнопка переключается в Stop.
+await page.locator('#textModeBtn').click();
+await page.waitForTimeout(200);
+await page.screenshot({ path: `${outDir}/text${suffix}.png`, fullPage: true });
+console.log(`${outDir}/text${suffix}.png`);
 await page.locator('#wpmSlider').fill('30'); // юнит 40 мс — смоук быстрый
 await page.locator('#sendInput').fill('5.');
 await page.locator('#sendBtn').click();
